@@ -1,4 +1,6 @@
-var exports = module.exports = {};
+var aggregators = require('./aggregators');
+
+var exports = module.exports = {aggregators: aggregators};
 
 var Cell = function Cell(key) {
   this.key = key;
@@ -6,34 +8,39 @@ var Cell = function Cell(key) {
 };
 
 exports.PivotTable = function PivotTable(data, options) {
-  var aggregators = {
-    'count': function(currentCell, rowValue) { return currentCell.value + 1; },
-    'sum': function(currentCell, rowValue) { return currentCell.value + rowValue; }
-  };
-
   this.inputData = data || [];
-  this.aggregator = options.aggregator || aggregators.count;
+  this.aggregator = options.aggregator || aggregators['count'];
   this.valueField = options.valueField || 'value';
   this.rowFields = options.rows || [];
   this.columnFields = options.columns || [];
   this.cells = { };
 
-  if (typeof this.aggregator != 'function')
-    if (typeof this.aggregator == 'string') {
-      var name = this.aggregator;
-
-      if (typeof aggregators[name] == 'function')
-        this.aggregator = aggregators[name];
-      else
-        throw new Error("Aggregator is not a function!");
-    }
+  if (!this.validAggregator())
+    throw new Error("Aggregator must be an object with accumulator and emitter methods");
 
   for (var i = 0, j = this.inputData.length; i < j; i++) {
     var row = this.inputData[i];
     var cell = this.getCell(row);
 
-    cell.value = this.aggregator(cell, this.getCellValue(row));
+    this.aggregator.accumulator(cell, row[this.valueField]);
   }
+}
+
+exports.PivotTable.prototype.validAggregator = function() {
+  if (this.aggregator instanceof Object)
+    return true;
+  else
+    if (typeof this.aggregator == 'string') {
+      var name = this.aggregator;
+
+      if (!(aggregators[name] instanceof Object)) {
+        return false;
+      }
+      else {
+        this.aggregator = aggregators[name];
+        return true;
+      }
+    }
 }
 
 exports.PivotTable.prototype.getCell = function(row) {
@@ -55,17 +62,25 @@ exports.PivotTable.prototype.forEachCell = function(func) {
       func(this.cells[key]);
 }
 
+exports.PivotTable.prototype.getKeyValue = function(fieldDef, row) {
+  if (typeof fieldDef == 'string')
+    return row[fieldDef];
+
+  if (typeof fieldDef === 'function')
+    return fieldDef(row);
+}
+
 exports.PivotTable.prototype.getCellKey = function(row) {
   var keys = [];
   var i = 0;
   var j = this.rowFields.length;
 
   for (i = 0; i < j; i++)
-    keys.push(row[this.rowFields[i].toString()]);
+    keys.push(this.getKeyValue(this.rowFields[i], row).toString());
 
   j = this.columnFields.length;
   for (i = 0; i < j; i++)
-    keys.push(row[this.columnFields[i].toString()]);
+    keys.push(this.getKeyValue(this.columnFields[i], row).toString());
 
   return keys.join("\0");
 }
